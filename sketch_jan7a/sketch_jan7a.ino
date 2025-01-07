@@ -46,6 +46,23 @@ void initializeFirebase() {
   Serial.println("Firebase initialized.");
 }
 
+// Placeholder function to get random NPK data
+void getNPKData(int &nitrogen, int &phosphorus, int &potassium) {
+  nitrogen = random(0, 101);  // Random value between 0 and 100
+  phosphorus = random(0, 101);
+  potassium = random(0, 101);
+  Serial.printf("Generated NPK Data -> N: %d, P: %d, K: %d\n", nitrogen, phosphorus, potassium);
+}
+
+// Placeholder function to get random MPST data
+void getMPSTData(int &moisture, float &temperature, float &salinity, float &pH) {
+  moisture = random(0, 101);  // Random value between 0 and 100
+  temperature = random(200, 350) / 10.0;  // Random value between 20.0 and 35.0
+  salinity = random(0, 100) / 10.0;  // Random value between 0.0 and 10.0
+  pH = random(50, 90) / 10.0;  // Random value between 5.0 and 9.0
+  Serial.printf("Generated MPST Data -> Moisture: %d, Temperature: %.1f, Salinity: %.1f, pH: %.1f\n", moisture, temperature, salinity, pH);
+}
+
 // Function to write NPK data to Firestore
 void writeNPKData(String collection, String document, int nitrogen, int phosphorus, int potassium) {
   FirebaseJson content;
@@ -239,6 +256,19 @@ void loop() {
   if (currentTime - lastPollTime > 10000) { // Poll every 10 seconds
     lastPollTime = currentTime;
     Serial.println("Polling Firestore for updates...");
+    int nitrogen, phosphorus, potassium;
+    int moisture;
+    float temperature, salinity, pH;
+
+    // Generate and write NPK data
+    getNPKData(nitrogen, phosphorus, potassium);
+    updateNPKData("npk", "npkdata", nitrogen, phosphorus, potassium);
+
+    // Generate and write MPST data
+    getMPSTData(moisture, temperature, salinity, pH);
+    updateMPSTData("mpst", "mpstdata", moisture, temperature, salinity, pH);
+
+    //read
     readNPKData("npk/npkdata");
     readMPSTData("mpst/mpstdata");
   }
