@@ -19,9 +19,6 @@ FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
 
-// Document path in Firestore
-String documentPath = "npk/npkdata";
-
 // Function to connect to WiFi
 void connectToWiFi() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -50,7 +47,8 @@ void initializeFirebase() {
 }
 
 // Function to write data to Firestore
-void writeDocument(String path, FirebaseJson content) {
+void writeDocument(String collection, String document, FirebaseJson content) {
+  String path = collection + "/" + document;
   Serial.println("Writing document...");
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), content.raw())) {
     Serial.println("Document written successfully!");
@@ -84,10 +82,15 @@ void setup() {
   initializeFirebase();
 
   // Example: Writing data to Firestore
-  FirebaseJson content;
-  content.set("fields/temperature/doubleValue", 25.5);
-  content.set("fields/humidity/doubleValue", 60.2);
-  writeDocument(documentPath, content);
+  FirebaseJson content1;
+  content1.set("fields/temperature/doubleValue", 25.5);
+  content1.set("fields/humidity/doubleValue", 60.2);
+  writeDocument("npk", "npkdata", content1);
+
+  FirebaseJson content2;
+  content2.set("fields/temperature/doubleValue", 30.0);
+  content2.set("fields/humidity/doubleValue", 65.0);
+  writeDocument("weather", "station1", content2);
 }
 
 void loop() {
@@ -98,6 +101,7 @@ void loop() {
   if (currentTime - lastPollTime > 10000) { // Poll every 10 seconds
     lastPollTime = currentTime;
     Serial.println("Polling Firestore for updates...");
-    readDocument(documentPath);
+    readDocument("npk/npkdata");
+    readDocument("weather/station1");
   }
 }
