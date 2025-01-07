@@ -46,12 +46,17 @@ void initializeFirebase() {
   Serial.println("Firebase initialized.");
 }
 
-// Function to write data to Firestore
-void writeDocument(String collection, String document, FirebaseJson content) {
+// Function to write NPK data to Firestore
+void writeNPKData(String collection, String document, int nitrogen, int phosphorus, int potassium) {
+  FirebaseJson content;
+  content.set("fields/n/integerValue", String(nitrogen));
+  content.set("fields/p/integerValue", String(phosphorus));
+  content.set("fields/k/integerValue", String(potassium));
+
   String path = collection + "/" + document;
-  Serial.println("Writing document...");
+  Serial.println("Writing NPK document...");
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), content.raw())) {
-    Serial.println("Document written successfully!");
+    Serial.println("NPK Document written successfully!");
     Serial.println(fbdo.payload());
   } else {
     Serial.print("Error: ");
@@ -59,13 +64,41 @@ void writeDocument(String collection, String document, FirebaseJson content) {
   }
 }
 
-// Function to read data from Firestore
-void readDocument(String path) {
-  Serial.println("Getting document...");
+// Function to read data from Firestore and parse NPK data
+void readNPKData(String path) {
+  Serial.println("Getting NPK document...");
   if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str())) {
     Serial.println("Document retrieved successfully!");
     Serial.println("Payload:");
     Serial.println(fbdo.payload());
+
+    // Parse the JSON payload
+    FirebaseJson json;
+    FirebaseJsonData jsonData;
+    json.setJsonData(fbdo.payload());
+
+    int nitrogen, phosphorus, potassium;
+
+    if (json.get(jsonData, "fields/n/integerValue")) {
+      nitrogen = jsonData.to<int>();
+      Serial.printf("Nitrogen: %d%%\n", nitrogen);
+    } else {
+      Serial.println("Failed to get Nitrogen.");
+    }
+
+    if (json.get(jsonData, "fields/p/integerValue")) {
+      phosphorus = jsonData.to<int>();
+      Serial.printf("Phosphorus: %d%%\n", phosphorus);
+    } else {
+      Serial.println("Failed to get Phosphorus.");
+    }
+
+    if (json.get(jsonData, "fields/k/integerValue")) {
+      potassium = jsonData.to<int>();
+      Serial.printf("Potassium: %d%%\n", potassium);
+    } else {
+      Serial.println("Failed to get Potassium.");
+    }
   } else {
     Serial.print("Error: ");
     Serial.println(fbdo.errorReason());
@@ -81,16 +114,11 @@ void setup() {
   // Initialize Firebase
   initializeFirebase();
 
-  // Example: Writing data to Firestore
-  FirebaseJson content1;
-  content1.set("fields/temperature/doubleValue", 25.5);
-  content1.set("fields/humidity/doubleValue", 60.2);
-  writeDocument("npk", "npkdata", content1);
+  // Example: Writing NPK data to Firestore
+  writeNPKData("npk", "npkdata", 100, 33, 20);
 
-  FirebaseJson content2;
-  content2.set("fields/temperature/doubleValue", 30.0);
-  content2.set("fields/humidity/doubleValue", 65.0);
-  writeDocument("weather", "station1", content2);
+  // Read and parse NPK data
+  readNPKData("npk/npkdata");
 }
 
 void loop() {
@@ -101,7 +129,6 @@ void loop() {
   if (currentTime - lastPollTime > 10000) { // Poll every 10 seconds
     lastPollTime = currentTime;
     Serial.println("Polling Firestore for updates...");
-    readDocument("npk/npkdata");
-    readDocument("weather/station1");
+    readNPKData("npk/npkdata");
   }
 }
