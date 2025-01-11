@@ -278,64 +278,69 @@ void setup() {
 }
 
 void loop() {
-  // Poll Firestore periodically to check for updates
   static unsigned long lastPollTime = 0;
   unsigned long currentTime = millis();
   static unsigned long lastModbusPoll = 0;
-  
-  uint8_t result;
-  uint16_t data[4];
 
-  // Read 4 registers starting from 0x0000
-  result = node.readInputRegisters(0x0000, 4);
+  // Variables for storing the latest valid data
+  static int lastMoisture = 0;
+  static float lastTemperature = 0.0;
+  static float lastSalinity = 0.0;
+  static float lastPH = 0.0;
 
+  // Temporary variables for current Modbus read
+  int moisture = lastMoisture;
+  float temperature = lastTemperature;
+  float salinity = lastSalinity;
+  float pH = lastPH;
 
+  // Check if it's time to poll Modbus
   if (currentTime - lastModbusPoll > 2000) { // Modbus every 2 seconds
     lastModbusPoll = currentTime;
-    // Modbus operations
+
+    // Read data from Modbus
+    uint8_t result = node.readInputRegisters(0x0000, 4); // Read 4 registers starting at 0x0000
 
     if (result == node.ku8MBSuccess) {
-    // Retrieve and print data
-    float moisture = node.getResponseBuffer(0) / 10.0;
-    float temperature = node.getResponseBuffer(1) / 10.0;
-    uint16_t conductivity = node.getResponseBuffer(2);
-    float pH = node.getResponseBuffer(3) / 10.0;
+      // Assign values to temporary variables
+      moisture = node.getResponseBuffer(0) / 10;        // Moisture
+      temperature = node.getResponseBuffer(1) / 10.0;  // Temperature
+      salinity = node.getResponseBuffer(2);            // Conductivity
+      pH = node.getResponseBuffer(3) / 10.0;           // pH
 
-    Serial.print("Moisture: ");
-    Serial.println(moisture);
-    Serial.print("Temperature: ");
-    Serial.println(temperature);
-    Serial.print("Conductivity: ");
-    Serial.println(conductivity);
-    Serial.print("pH: ");
-    Serial.println(pH);
+      // Update last valid data
+      lastMoisture = moisture;
+      lastTemperature = temperature;
+      lastSalinity = salinity;
+      lastPH = pH;
 
+      // Print updated data to Serial Monitor
+      Serial.printf("Modbus Data -> Moisture: %d%%, Temperature: %.1f°C, Salinity: %.1f‰, pH: %.1f\n",
+                    moisture, temperature, salinity, pH);
     } else {
+      // Modbus error - reuse last valid data
       Serial.print("Modbus Error Code: ");
       Serial.println(result);
+      Serial.println("Using last valid data for Firestore update...");
     }
-  } 
+  }
 
-  
-
-
-  if (currentTime - lastPollTime > 10000) { // Poll every 10 seconds
+  // Check if it's time to update Firestore
+  if (currentTime - lastPollTime > 10000) { // Poll Firestore every 10 seconds
     lastPollTime = currentTime;
-    Serial.println("Polling Firestore for updates...");
-    int nitrogen, phosphorus, potassium;
-    int moisture;
-    float temperature, salinity, pH;
 
-    // Generate and write NPK data
+    Serial.println("Updating Firestore with latest data...");
+
+    // Update Firestore with the latest data (either from Modbus or last valid values)
+    updateMPSTData("mpst", "mpstdata", moisture, temperature, salinity, pH);
+
+    // Optional: Update and read NPK data
+    int nitrogen, phosphorus, potassium;
     getNPKData(nitrogen, phosphorus, potassium);
     updateNPKData("npk", "npkdata", nitrogen, phosphorus, potassium);
 
-    // Generate and write MPST data
-    getMPSTData(moisture, temperature, salinity, pH);
-    updateMPSTData("mpst", "mpstdata", moisture, temperature, salinity, pH);
-
-    //read
     readNPKData("npk/npkdata");
     readMPSTData("mpst/mpstdata");
   }
 }
+
