@@ -1,5 +1,7 @@
 #include <WiFi.h>
 #include <Firebase_ESP_Client.h>
+#include <ModbusMaster.h>
+
 
 // Provide the token generation process info.
 #include <addons/TokenHelper.h>
@@ -13,7 +15,24 @@
 #define FIREBASE_PROJECT_ID "usbong-45c3e"
 #define USER_EMAIL "test@gmail.com"
 #define USER_PASSWORD "test1234"
+#define RXD2 16
+#define TXD2 17
+#define RE_PIN 4 // RE (Receiver Enable)
+#define DE_PIN 5
 
+ModbusMaster node;
+
+ void preTransmission() {
+    digitalWrite(RE_PIN, HIGH);
+    digitalWrite(DE_PIN, HIGH);
+    delay(5); // Delay to stabilize
+}
+
+void postTransmission() {
+    digitalWrite(DE_PIN, LOW);
+    digitalWrite(RE_PIN, LOW);
+    delay(5); // Delay to stabilize
+}
 // Firebase objects
 FirebaseData fbdo;
 FirebaseAuth auth;
@@ -227,7 +246,17 @@ void updateMPSTData(String collection, String document, int moisture, float temp
 
 
 void setup() {
+  pinMode(RE_PIN, OUTPUT);
+  pinMode(DE_PIN, OUTPUT);
+  digitalWrite(RE_PIN, LOW); // Default to Receiver mode
+  digitalWrite(DE_PIN, LOW); 
   Serial.begin(115200);
+  Serial2.begin(4800, SERIAL_8N1, RXD2, TXD2);
+
+  node.begin(1, Serial2); // Sensor ID = 1
+  node.preTransmission(preTransmission);
+  node.postTransmission(postTransmission);
+
 
   // Connect to WiFi
   connectToWiFi();
@@ -252,6 +281,43 @@ void loop() {
   // Poll Firestore periodically to check for updates
   static unsigned long lastPollTime = 0;
   unsigned long currentTime = millis();
+  static unsigned long lastModbusPoll = 0;
+  
+  uint8_t result;
+  uint16_t data[4];
+
+  // Read 4 registers starting from 0x0000
+  result = node.readInputRegisters(0x0000, 4);
+
+
+  if (currentTime - lastModbusPoll > 2000) { // Modbus every 2 seconds
+    lastModbusPoll = currentTime;
+    // Modbus operations
+
+    if (result == node.ku8MBSuccess) {
+    // Retrieve and print data
+    float moisture = node.getResponseBuffer(0) / 10.0;
+    float temperature = node.getResponseBuffer(1) / 10.0;
+    uint16_t conductivity = node.getResponseBuffer(2);
+    float pH = node.getResponseBuffer(3) / 10.0;
+
+    Serial.print("Moisture: ");
+    Serial.println(moisture);
+    Serial.print("Temperature: ");
+    Serial.println(temperature);
+    Serial.print("Conductivity: ");
+    Serial.println(conductivity);
+    Serial.print("pH: ");
+    Serial.println(pH);
+
+    } else {
+      Serial.print("Modbus Error Code: ");
+      Serial.println(result);
+    }
+  } 
+
+  
+
 
   if (currentTime - lastPollTime > 10000) { // Poll every 10 seconds
     lastPollTime = currentTime;
