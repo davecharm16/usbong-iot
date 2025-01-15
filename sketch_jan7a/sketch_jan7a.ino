@@ -29,6 +29,41 @@
   ModbusMaster node;
   ModbusMaster node2;
 
+  #define TIMEZONE_OFFSET 8 * 3600
+  #define DAYLIGHT_OFFSET 0
+
+void updateTimeFromNTP() {
+    configTime(TIMEZONE_OFFSET, DAYLIGHT_OFFSET, "ph.pool.ntp.org", "time.nist.gov");
+    Serial.println("Waiting for time");
+    while (!time(nullptr)) {
+        Serial.print(".");
+        delay(1000);
+    }
+}
+
+void getCurrentTimeFormatted(int &hour, int &minute) {
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        Serial.println("Failed to obtain time");
+        hour = -1;   // Set to -1 as an error indicator
+        minute = -1; // Set to -1 as an error indicator
+        return;
+    }
+    hour = timeinfo.tm_hour;   // Extract the hour
+    minute = timeinfo.tm_min;
+}
+
+String getCurrentTimeFormatted() {
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        Serial.println("Failed to obtain time");
+        return "";
+    }
+    char timeString[25]; // Buffer to hold the time string
+    strftime(timeString, sizeof(timeString), "%Y-%m-%dT%H:%M:%SZ", &timeinfo); // ISO8601 format
+    return String(timeString);
+}
+
   void preTransmission() {
       digitalWrite(RE_PIN, HIGH);
       digitalWrite(DE_PIN, HIGH);
@@ -191,38 +226,48 @@ void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitroge
     }
   }
 
-    void sendMoistureNotification(int moisture, int threshold) {
-    static unsigned long lastNotificationTime = 0; // Stores the last notification time
+  void sendMoistureNotification(int moisture, int threshold) {
+    static unsigned long lastNotificationTime = 0; // Last notification time
     unsigned long currentTime = millis();
-    
-    // Check if the timeout has elapsed (10 minutes = 600000 milliseconds)
-    if (currentTime - lastNotificationTime < 600000) {
-      Serial.println("Notification skipped due to timeout.");
-      return;
+
+    // Check for notification timeout (10 minutes = 600000 ms)
+    if (lastNotificationTime != 0 && (currentTime - lastNotificationTime) < 300000) {
+        Serial.println("Notification skipped due to timeout.");
+        return;
     }
 
-    // Generate a unique document ID (e.g., based on timestamp)
+    String formattedTime = getCurrentTimeFormatted(); 
+
+    // Send the notification
+    Serial.println("Sending first notification or timeout has elapsed...");
+
+    // Generate a unique document ID based on timestamp
     String documentId = String(random(100000, 999999)) + "_" + String(millis());
 
-    // Construct the notification JSON
+    // Construct the Firebase JSON payload
     FirebaseJson content;
     content.set("fields/title/stringValue", "Moisture Level Alert");
     content.set("fields/message/stringValue", "Moisture level is below the threshold.");
-    content.set("fields/details/moisture/integerValue", moisture);
-    content.set("fields/details/threshold/integerValue", threshold);
+    content.set("fields/timestamp/timestampValue", formattedTime);
+    FirebaseJson details;
+    details.set("fields/moisture/integerValue", String(moisture));
+    details.set("fields/threshold/integerValue", String(threshold));
+    content.set("fields/details/mapValue", details);
 
-    String path = "notification/" + documentId; // Create a document with a unique ID
+    String path = "notification/" + documentId; // Path for the new document
 
+    delay(1000);
     // Send the notification
     Serial.println("Sending notification...");
     if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), content.raw())) {
-      Serial.println("Notification sent successfully!");
-      Serial.println(fbdo.payload());
-      lastNotificationTime = currentTime; // Update the last notification time
+        Serial.println("Notification sent successfully!");
+        Serial.println(fbdo.payload());
+        lastNotificationTime = currentTime; // Update the last notification time
     } else {
-      Serial.print("Error sending notification: ");
-      Serial.println(fbdo.errorReason());
+        Serial.print("Error sending notification: ");
+        Serial.println(fbdo.errorReason());
     }
+    delay(1000);
   }
 
 
@@ -311,26 +356,28 @@ void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitroge
     }
   }
 
-  int getMoistureThreshold() {
+  int getMoistureThreshold(String path) {
     int threshold = -1; // Default threshold
-    String path = "pumpControl/settings";
-    Serial.println("Getting moisture threshold...");
+    Serial.println("Getting pump control document...");
+    if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)", path.c_str())) {
+        Serial.println("Document retrieved successfully!");
+        Serial.println("Payload:");
+        Serial.println(fbdo.payload());
 
-    if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str())) {
-      Serial.println("Threshold document retrieved successfully!");
-      FirebaseJson json;
-      FirebaseJsonData jsonData;
-      json.setJsonData(fbdo.payload());
+        FirebaseJson json;
+        FirebaseJsonData jsonData;
 
-      if (json.get(jsonData, "fields/moistureThreshold/integerValue")) {
-        threshold = jsonData.to<int>();
-        Serial.printf("Moisture threshold: %d\n", threshold);
-      } else {
-        Serial.println("Failed to retrieve moistureThreshold, using default.");
-      }
+        json.setJsonData(fbdo.payload());
+        // Extract Moisture Threshold
+        if (json.get(jsonData, "fields/moistureThreshold/integerValue")) {
+          threshold = jsonData.to<int>();
+          Serial.printf("Moisture: %d%%\n", threshold);
+        } else {
+          Serial.println("Failed to get MoistureThreshold");
+        }
     } else {
-      Serial.print("Error retrieving threshold: ");
-      Serial.println(fbdo.errorReason());
+        Serial.print("Error: ");
+        Serial.println(fbdo.errorReason());
     }
     return threshold;
   }
@@ -400,6 +447,8 @@ void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitroge
     // Initialize Firebase
     initializeFirebase();
 
+    updateTimeFromNTP();
+
     // Example: Writing NPK data to Firestore
     writeNPKData("npk", "npkdata", 100, 33, 20);
 
@@ -426,7 +475,6 @@ void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitroge
     static int lastNitrogen = -1;
     static int lastPhosphorus = -1;
     static int lastPotassium = -1;
-    static int moistureThreshold = getMoistureThreshold();
 
     // Temporary variables for current Modbus read
     int moisture = lastMoisture;
@@ -440,6 +488,8 @@ void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitroge
     // Check if it's time to poll Modbus
     if (currentTime - lastModbusPoll > 2000) { // Modbus every 2 seconds
       lastModbusPoll = currentTime;
+
+      int moistureThreshold = getMoistureThreshold("pumpControl/settings");
 
       // Read data from Modbus
       uint8_t result = node.readInputRegisters(0x0000, 4); // Read 4 registers starting at 0x0000

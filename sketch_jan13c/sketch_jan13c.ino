@@ -28,6 +28,7 @@ int moisture = -1;                // Current moisture value (from Firebase)
 int moistureThreshold = -1;       // Moisture threshold (from Firebase)
 bool pumpOnCommand = false;       // Command to turn on pump from Firebase
 bool pumpState = false;           // Current pump state
+bool autoPumpOn = false;           // Current pump state
 unsigned long pumpStartTime = 0;  // Pump activation time
 int currentHour = -2;
 int currentMinute = -2;
@@ -159,6 +160,16 @@ bool readPumpControlData(String path) {
             Serial.println("Failed to get Pump On Command.");
         }
 
+                // Extract Pump On Command
+        if (json.get(jsonData, "fields/autoPumpOn/booleanValue")) {
+            autoPumpOn = jsonData.boolValue; // Directly assign boolean
+            Serial.printf("Pump On Command: %s\n", autoPumpOn ? "true" : "false");
+        } else {
+            validData = false;
+            Serial.println("Failed to get Auto Pump On Command.");
+        }
+
+
         return validData;
     } else {
         Serial.print("Error: ");
@@ -252,7 +263,7 @@ void loop() {
         // Auto ON based on time, ensuring no re-trigger within the same minute
         if (autoOnHour >= 0 && autoOnMinute >= 0 &&
             currentHour == autoOnHour && currentMinute == autoOnMinute &&
-            lastTriggeredMinute != currentMinute) {
+            lastTriggeredMinute != currentMinute && autoPumpOn) {
             Serial.println("Triggering Pump ON: Time Match.");
             turnPumpOn();
             lastTriggeredMinute = currentMinute; // Update last triggered minute
