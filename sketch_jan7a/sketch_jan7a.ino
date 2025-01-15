@@ -29,7 +29,7 @@
   ModbusMaster node;
   ModbusMaster node2;
 
-  #define TIMEZONE_OFFSET 8 * 3600
+  #define TIMEZONE_OFFSET 0
   #define DAYLIGHT_OFFSET 0
 
 void updateTimeFromNTP() {
