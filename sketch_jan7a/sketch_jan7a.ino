@@ -191,6 +191,41 @@ void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitroge
     }
   }
 
+    void sendMoistureNotification(int moisture, int threshold) {
+    static unsigned long lastNotificationTime = 0; // Stores the last notification time
+    unsigned long currentTime = millis();
+    
+    // Check if the timeout has elapsed (10 minutes = 600000 milliseconds)
+    if (currentTime - lastNotificationTime < 600000) {
+      Serial.println("Notification skipped due to timeout.");
+      return;
+    }
+
+    // Generate a unique document ID (e.g., based on timestamp)
+    String documentId = String(random(100000, 999999)) + "_" + String(millis());
+
+    // Construct the notification JSON
+    FirebaseJson content;
+    content.set("fields/title/stringValue", "Moisture Level Alert");
+    content.set("fields/message/stringValue", "Moisture level is below the threshold.");
+    content.set("fields/details/moisture/integerValue", moisture);
+    content.set("fields/details/threshold/integerValue", threshold);
+
+    String path = "notification/" + documentId; // Create a document with a unique ID
+
+    // Send the notification
+    Serial.println("Sending notification...");
+    if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), content.raw())) {
+      Serial.println("Notification sent successfully!");
+      Serial.println(fbdo.payload());
+      lastNotificationTime = currentTime; // Update the last notification time
+    } else {
+      Serial.print("Error sending notification: ");
+      Serial.println(fbdo.errorReason());
+    }
+  }
+
+
   // Function to write MPST data to Firestore
   void writeMPSTData(String collection, String document, int moisture, float temperature, float salinity, float pH) {
     FirebaseJson content;
@@ -275,6 +310,31 @@ void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitroge
       Serial.println(fbdo.errorReason());
     }
   }
+
+  int getMoistureThreshold() {
+    int threshold = -1; // Default threshold
+    String path = "pumpControl/settings";
+    Serial.println("Getting moisture threshold...");
+
+    if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str())) {
+      Serial.println("Threshold document retrieved successfully!");
+      FirebaseJson json;
+      FirebaseJsonData jsonData;
+      json.setJsonData(fbdo.payload());
+
+      if (json.get(jsonData, "fields/moistureThreshold/integerValue")) {
+        threshold = jsonData.to<int>();
+        Serial.printf("Moisture threshold: %d\n", threshold);
+      } else {
+        Serial.println("Failed to retrieve moistureThreshold, using default.");
+      }
+    } else {
+      Serial.print("Error retrieving threshold: ");
+      Serial.println(fbdo.errorReason());
+    }
+    return threshold;
+  }
+
 
   void updateMPSTData(String collection, String document, int moisture, float temperature, float salinity, float pH) {
     FirebaseJson content;
@@ -366,12 +426,14 @@ void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitroge
     static int lastNitrogen = -1;
     static int lastPhosphorus = -1;
     static int lastPotassium = -1;
+    static int moistureThreshold = getMoistureThreshold();
 
     // Temporary variables for current Modbus read
     int moisture = lastMoisture;
     float temperature = lastTemperature;
     float salinity = lastSalinity;
     float pH = lastPH;
+    
   
     int nitrogen, phosphorus, potassium;
 
@@ -394,10 +456,15 @@ void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitroge
         lastTemperature = temperature;
         lastSalinity = salinity;
         lastPH = pH;
+        
+        if (moisture < moistureThreshold) {
+          sendMoistureNotification(moisture, moistureThreshold);
+        }
 
         // Print updated data to Serial Monitor
         Serial.printf("Modbus Data -> Moisture: %d%%, Temperature: %.1f°C, Salinity: %.1f‰, pH: %.1f\n",
                       moisture, temperature, salinity, pH);
+
       } else {
         // Modbus error - reuse last valid data
         Serial.print("Modbus Error Code: ");
@@ -424,4 +491,3 @@ void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitroge
       readMPSTData("mpst/mpstdata");
     }
   }
-
