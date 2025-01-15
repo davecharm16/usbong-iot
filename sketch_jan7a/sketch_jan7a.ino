@@ -104,42 +104,32 @@
     Serial.printf("Generated MPST Data -> Moisture: %d, Temperature: %.1f, Salinity: %.1f, pH: %.1f\n", moisture, temperature, salinity, pH);
   }
 
-  void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitrogen, int &lastPhosphorus, int &lastPotassium) {
-      Serial.println("Requesting NPK data...");
-      uint8_t result = node2.readHoldingRegisters(0x001E, 3); // Read 3 registers starting at 0x001E
+void getNPKData(int &nitrogen, int &phosphorus, int &potassium, int &lastNitrogen, int &lastPhosphorus, int &lastPotassium) {
+  Serial.println("Requesting NPK data...");
+  uint8_t result = node2.readHoldingRegisters(0x001E, 3); // Read 3 registers starting at 0x001E
 
-      if (result == node2.ku8MBSuccess) {
-        nitrogen = node2.getResponseBuffer(0);  // Nitrogen
-        phosphorus = node2.getResponseBuffer(1); // Phosphorus
-        potassium = node2.getResponseBuffer(2);  // Potassium
+  if (result == node2.ku8MBSuccess) {
+    nitrogen = node2.getResponseBuffer(0);
+    phosphorus = node2.getResponseBuffer(1);
+    potassium = node2.getResponseBuffer(2);
 
-        // Update last known good values
-        lastNitrogen = nitrogen;
-        lastPhosphorus = phosphorus;
-        lastPotassium = potassium;
+    // Validate and update last known values
+    if (nitrogen >= 0 && phosphorus >= 0 && potassium >= 0) {
+      lastNitrogen = nitrogen;
+      lastPhosphorus = phosphorus;
+      lastPotassium = potassium;
+    }
 
-        // Print data
-        Serial.printf("NPK Data -> Nitrogen: %d mg/kg, Phosphorus: %d mg/kg, Potassium: %d mg/kg\n",
-                      nitrogen, phosphorus, potassium);
-      } 
-      else {
-        Serial.print("Modbus Error: ");
-        Serial.println(result);
-
-        if (result == 226) {
-          Serial.println("Timeout: Sensor did not respond.");
-        } else if (result == 227) {
-          Serial.println("CRC Error: Data corruption.");
-        } else {
-          Serial.println("Unknown error.");
-        }
-
-        // Use last known good data
-        Serial.println("Using last known good data:");
-        Serial.printf("Nitrogen: %d mg/kg, Phosphorus: %d mg/kg, Potassium: %d mg/kg\n",
-                      lastNitrogen, lastPhosphorus, lastPotassium);
-      }
+    Serial.printf("NPK Data -> Nitrogen: %d mg/kg, Phosphorus: %d mg/kg, Potassium: %d mg/kg\n",
+                  nitrogen, phosphorus, potassium);
+  } else {
+    Serial.println("Modbus error, using last known good values...");
+    nitrogen = lastNitrogen;
+    phosphorus = lastPhosphorus;
+    potassium = lastPotassium;
   }
+}
+
 
 
   // Function to write NPK data to Firestore
@@ -295,6 +285,20 @@
 
     String path = collection + "/" + document;
     Serial.println("Updating MPST document...");
+    if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), content.raw(), "")) {
+      Serial.println("MPST Document updated successfully!");
+      Serial.println(fbdo.payload());
+    } else {
+      Serial.print("Error: ");
+      Serial.println(fbdo.errorReason());
+    }
+  }
+
+  void updateMoistueOnPump(String collection, String document, int moisture){
+    FirebaseJson content;
+    content.set("fields/moisture/integerValue", String(moisture));
+    String path = collection + "/" + document;
+    Serial.println("Updating Moisture on Settings document...");
     if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "", path.c_str(), content.raw(), "")) {
       Serial.println("MPST Document updated successfully!");
       Serial.println(fbdo.payload());
